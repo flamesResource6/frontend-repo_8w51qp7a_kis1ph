@@ -18,29 +18,46 @@ const StarfieldBackground = () => {
     canvas.style.height = height + 'px';
     ctx.scale(DPR, DPR);
 
-    const STAR_COUNT = Math.floor((width * height) / 2500);
-    const stars = new Array(STAR_COUNT).fill(0).map(() => ({
-      x: Math.random() * width,
-      y: Math.random() * height,
-      z: Math.random() * 0.8 + 0.2, // depth
-      r: Math.random() * 1.2 + 0.3,
-      tw: Math.random() * 0.05 + 0.01, // twinkle speed
-      t: Math.random() * Math.PI * 2,
-    }));
+    const STAR_COUNT = Math.floor((width * height) / 2200);
+    const stars = new Array(STAR_COUNT).fill(0).map(() => {
+      const z = Math.random() * 0.8 + 0.2; // depth
+      const speedBase = (1 - z) * 0.05; // slower if "deeper"
+      return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        z,
+        r: Math.random() * 1.3 + 0.4,
+        tw: Math.random() * 0.035 + 0.015, // twinkle speed
+        t: Math.random() * Math.PI * 2,
+        vx: (Math.random() - 0.5) * speedBase,
+        vy: (Math.random() - 0.5) * speedBase,
+      };
+    });
 
     const shooting = { active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0 };
     let lastShoot = 0;
+    let time = 0;
 
-    const gradientSpace = ctx.createLinearGradient(0, 0, 0, height);
-    gradientSpace.addColorStop(0, '#0b1025');
-    gradientSpace.addColorStop(0.6, '#0a0720');
-    gradientSpace.addColorStop(1, '#050312');
+    const draw = (ts) => {
+      time = ts * 0.001; // seconds
 
-    const draw = (t) => {
+      // animated deep space gradient by subtle translation
+      const offsetX = Math.sin(time * 0.05) * 20;
+      const offsetY = Math.cos(time * 0.04) * 15;
+
+      ctx.save();
+      ctx.translate(offsetX, offsetY);
+      const gradientSpace = ctx.createLinearGradient(0, 0, 0, height + 100);
+      gradientSpace.addColorStop(0, '#0b1025');
+      gradientSpace.addColorStop(0.6, '#0a0720');
+      gradientSpace.addColorStop(1, '#050312');
       ctx.fillStyle = gradientSpace;
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(-offsetX, -offsetY, width + Math.abs(offsetX) * 2, height + Math.abs(offsetY) * 2);
+      ctx.restore();
 
-      // subtle nebula glows
+      // subtle nebula glows that drift
+      const nebulaDriftX = Math.sin(time * 0.03) * 40;
+      const nebulaDriftY = Math.cos(time * 0.025) * 30;
       const glow = (gx, gy, gr, color, alpha) => {
         const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
         g.addColorStop(0, `rgba(${color}, ${alpha})`);
@@ -50,34 +67,55 @@ const StarfieldBackground = () => {
         ctx.arc(gx, gy, gr, 0, Math.PI * 2);
         ctx.fill();
       };
-      glow(width * 0.25, height * 0.3, Math.min(width, height) * 0.5, '120, 80, 255', 0.18);
-      glow(width * 0.75, height * 0.7, Math.min(width, height) * 0.45, '60, 180, 255', 0.14);
+      glow(width * 0.22 + nebulaDriftX, height * 0.32 + nebulaDriftY, Math.min(width, height) * 0.5, '120, 80, 255', 0.20);
+      glow(width * 0.78 - nebulaDriftX * 0.6, height * 0.68 - nebulaDriftY * 0.6, Math.min(width, height) * 0.45, '60, 180, 255', 0.16);
 
       // stars
       stars.forEach((s) => {
         s.t += s.tw;
-        const twinkle = 0.6 + Math.sin(s.t) * 0.4;
-        const size = s.r * (1 + s.z * 0.8) * twinkle;
+        const twinkle = 0.7 + Math.sin(s.t) * 0.5; // brighter twinkle
+        const size = s.r * (1 + s.z * 0.9) * twinkle;
 
-        // parallax drift
-        s.x += 0.02 * (1 - s.z);
+        // gentle drift
+        s.x += s.vx + 0.01 * (1 - s.z);
+        s.y += s.vy + 0.006 * (1 - s.z);
+
+        // wrap around edges
         if (s.x > width + 2) s.x = -2;
+        if (s.x < -2) s.x = width + 2;
+        if (s.y > height + 2) s.y = -2;
+        if (s.y < -2) s.y = height + 2;
 
-        ctx.shadowBlur = 8 * s.z * twinkle;
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-        ctx.fillStyle = `rgba(${200 + 55 * s.z | 0}, ${200 + 30 * s.z | 0}, 255, ${0.85})`;
+        // glowing star with soft halo
+        const hueR = (200 + 55 * s.z) | 0;
+        const hueG = (200 + 30 * s.z) | 0;
+        const colorCore = `rgba(${hueR}, ${hueG}, 255, 1)`;
+        const colorGlow = `rgba(${hueR}, ${hueG}, 255, ${0.35 + 0.3 * s.z})`;
+
+        const glowRadius = size * (4 + 2 * s.z);
+        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, glowRadius);
+        g.addColorStop(0, colorCore);
+        g.addColorStop(0.35, colorGlow);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(s.x, s.y, size, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // bright core
+        ctx.fillStyle = colorCore;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, size * 0.4, 0, Math.PI * 2);
         ctx.fill();
       });
 
       // occasional shooting star
-      if (!shooting.active && t - lastShoot > 3000 && Math.random() < 0.01) {
+      if (!shooting.active && ts - lastShoot > 3500 && Math.random() < 0.012) {
         shooting.active = true;
-        lastShoot = t;
+        lastShoot = ts;
         shooting.x = Math.random() * width * 0.4 + width * 0.3;
         shooting.y = -20;
-        const speed = 6 + Math.random() * 3;
+        const speed = 5 + Math.random() * 2.5;
         const angle = Math.PI * (0.65 + Math.random() * 0.08);
         shooting.vx = Math.cos(angle) * speed;
         shooting.vy = Math.sin(angle) * speed;
@@ -88,11 +126,12 @@ const StarfieldBackground = () => {
         shooting.y += shooting.vy;
         shooting.life += 1;
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        const tailLen = 5;
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(shooting.x, shooting.y);
-        ctx.lineTo(shooting.x - shooting.vx * 4, shooting.y - shooting.vy * 4);
+        ctx.lineTo(shooting.x - shooting.vx * tailLen, shooting.y - shooting.vy * tailLen);
         ctx.stroke();
 
         if (shooting.x < -50 || shooting.y > height + 50 || shooting.life > 120) {
